@@ -57,15 +57,17 @@ jobs:
         
       
       
+      
       - name: Check Android dependency build tools
         run: |
           set -eux
-          export PATH="$HOME/.local/bin:$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          export PATH="$RUNNER_TEMP/meson-venv/bin:$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           python3 --version
           ninja --version
           git --version
           meson --version
           aarch64-linux-android27-clang --version
+
 
 
 
