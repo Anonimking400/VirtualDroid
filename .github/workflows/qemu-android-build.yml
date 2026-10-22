@@ -53,6 +53,14 @@ jobs:
             libpixman-1-dev \
             zlib1g-dev \
             libslirp-dev
+
+      - name: Check host dependency versions
+        run: |
+          set -eux
+          pkg-config --modversion glib-2.0
+          pkg-config --modversion pixman-1
+          pkg-config --variable=libdir glib-2.0
+          pkg-config --variable=libdir pixman-1
             
       - name: Inspect QEMU dependencies
         run: |
