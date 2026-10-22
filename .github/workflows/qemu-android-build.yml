@@ -124,6 +124,17 @@ jobs:
           test -f glib-2.82.4/meson.build
           echo "GLib source archive verified"
 
+      
+      - name: Inspect GLib Android cross file
+        run: |
+          set -eux
+          cd "$RUNNER_TEMP/glib-source"
+          tar -xf glib.tar.xz
+          sed -n '1,220p' glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
+          echo "=== GLib Android build instructions ==="
+          grep -n -i -E 'android|libffi|pcre2|cross.file|meson setup' glib-2.82.4/.gitlab-ci/android-ndk.sh
+
+
 
       - name: Test Android dependency build tools
         run: |
