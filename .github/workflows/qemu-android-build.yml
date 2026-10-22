@@ -119,8 +119,10 @@ jobs:
           needs_exe_wrapper = true
 
           [built-in options]
-          c_args = ['-fPIC']
-          cpp_args = ['-fPIC']
+          c_args = ['-fPIC', '-I$PREFIX/include']
+          cpp_args = ['-fPIC', '-I$PREFIX/include']
+          c_link_args = ['-fPIC', '-L$PREFIX/lib']
+          cpp_link_args = ['-fPIC', '-L$PREFIX/lib']
           EOF
 
           echo "CROSS_FILE=$CROSS_FILE" >> "$GITHUB_ENV"
@@ -185,23 +187,23 @@ jobs:
           GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
           BUILD="$RUNNER_TEMP/glib-build"
 
-          # Meson saat cross-compile akan mengabaikan environment variable CFLAGS/LDFLAGS.
-          # Oleh karena itu, kita masukkan path libiconv langsung ke c_args dan c_link_args.
-          
+          # [PATCH] Memaksa Meson GLib untuk menggunakan GNU libiconv yang sudah kita build
+          # Ini me-replace baris dependency('iconv') dengan declare_dependency manual
+          sed -i "s|dependency('iconv'.*)|declare_dependency(link_args: ['-L$PREFIX/lib', '-liconv'], compile_args: ['-I$PREFIX/include'])|g" "$GLIB/meson.build"
+
           "$HOME/.local/bin/meson" setup "$BUILD" "$GLIB" \
             --cross-file "$CROSS_FILE" \
             --prefix="$PREFIX" \
             --libdir=lib \
             --buildtype=release \
             --wrap-mode=forcefallback \
-            -Dc_args="-fPIC -I$PREFIX/include" \
-            -Dc_link_args="-fPIC -L$PREFIX/lib -liconv" \
             -Dtests=false \
             -Dintrospection=disabled \
             -Ddocumentation=false \
             -Dman-pages=disabled \
             -Dselinux=disabled \
             -Dlibmount=disabled
+
 
 
       - name: Build and install GLib
