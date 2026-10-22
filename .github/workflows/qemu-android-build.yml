@@ -185,3 +185,23 @@ jobs:
           echo "$SYSROOT"
 
           echo "Android NDK toolchain checks passed"
+
+
+      - name: Inspect GLib build dependencies
+        run: |
+          set -eux
+
+          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
+
+          echo "=== GLib subproject files ==="
+          find "$GLIB/subprojects" -maxdepth 2 -type f -print || true
+
+          echo "=== GLib dependency declarations ==="
+          grep -n -i -E \
+            "dependency\\('libffi|dependency\\('libpcre2|dependency\\('zlib|allow_fallback|default_library" \
+            "$GLIB/meson.build" || true
+
+          echo "=== Official Android build script ==="
+          sed -n '1,240p' "$GLIB/.gitlab-ci/android-ndk.sh"
+
+          echo "=== Dependency inspection completed ==="
