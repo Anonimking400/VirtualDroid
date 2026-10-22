@@ -1,22 +1,17 @@
-
 name: VirtualDroid QEMU Android ARM64
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
+env:
+  ANDROID_NDK_VERSION: 27.2.12479018
 
 jobs:
-  build:
-    name: Build QEMU for Android ARM64
+  build-qemu-android:
     runs-on: ubuntu-22.04
 
-    env:
-      ANDROID_NDK_VERSION: 27.2.12479018
-
     steps:
-      - name: Checkout QEMU source
+      - name: Checkout QEMU
         uses: actions/checkout@v4
         with:
           repository: qemu/qemu
@@ -24,22 +19,24 @@ jobs:
           path: qemu-source
           fetch-depth: 1
 
-      - name: Set up Java
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Install Android NDK
         run: |
+          set -eux
           sdkmanager "ndk;${ANDROID_NDK_VERSION}"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
 
-      - name: Install build dependencies
+      - name: Install Linux build dependencies
         run: |
+          set -eux
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -54,68 +51,22 @@ jobs:
             zlib1g-dev \
             libslirp-dev
 
-        
-      
-      
-      
-      
-      
-      - name: Check Android dependency build tools
-        run: |
-          set -eux
-          python3 --version
-          ninja --version
-          git --version
-          "$RUNNER_TEMP/meson-python/bin/meson" --version
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang" --version
-
-
-
-        
-      
-      
-      
-      - name: Prepare Meson for Android dependencies
-        run: |
-          set -eux
-          python3 -m pip install --target="$RUNNER_TEMP/meson-python" 'meson>=1.3.0,<2'
-          "$RUNNER_TEMP/meson-python/bin/meson" --version
-
-
-
-      - name: Check host dependency versions
-        run: |
-          set -eux
-          pkg-config --modversion glib-2.0
-          pkg-config --modversion pixman-1
-          pkg-config --variable=libdir glib-2.0
-          pkg-config --variable=libdir pixman-1
-            
-      - name: Inspect QEMU dependencies
-        run: |
-          set -eux
-          cd qemu-source
-          echo "=== Git submodules ==="
-          git submodule status
-          echo "=== Meson dependency files ==="
-          find subprojects -maxdepth 2 -name '*.wrap' -print 2>/dev/null || true
-          echo "=== GLib and Pixman references ==="
-          grep -n -i -E 'glib|pixman' meson.build
-          
       - name: Inspect Android NDK
         run: |
+          set -eux
           test -d "$ANDROID_NDK_HOME"
           ls "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-      
       - name: Test Android ARM64 compiler
         run: |
           set -eux
+
           TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC="$TOOLCHAIN/aarch64-linux-android27-clang"
 
           cat > hello.c <<'EOF'
           #include <stdio.h>
+
           int main(void) {
               puts("VirtualDroid Android ARM64 toolchain OK");
               return 0;
@@ -123,11 +74,52 @@ jobs:
           EOF
 
           "$CC" hello.c -o hello-android
+
           file hello-android
+
           "$TOOLCHAIN/llvm-readelf" -h hello-android
 
-
-      - name: Report NDK availability
+      - name: Inspect QEMU dependencies
         run: |
-          echo "Android NDK is installed."
-          echo "Next step: configure QEMU for the Android target."
+          set -eux
+
+          cd qemu-source
+
+          echo "=== Git submodules ==="
+          git submodule status
+
+          echo "=== Meson dependency files ==="
+          find subprojects -maxdepth 2 -name '*.wrap' -print 2>/dev/null || true
+
+          echo "=== GLib and Pixman references ==="
+          grep -n -i -E 'glib|pixman' meson.build
+
+      - name: Check host dependency versions
+        run: |
+          set -eux
+
+          pkg-config --modversion glib-2.0
+          pkg-config --modversion pixman-1
+
+          pkg-config --variable=libdir glib-2.0
+          pkg-config --variable=libdir pixman-1
+
+      - name: Test Android dependency build tools
+        run: |
+          set -eux
+
+          python3 --version
+          ninja --version
+          git --version
+
+          python3 -m pip install --user --upgrade 'meson>=1.3.0,<2'
+
+          MESON="$(python3 -m site --user-base)/bin/meson"
+
+          echo "Meson path: $MESON"
+
+          test -x "$MESON"
+
+          "$MESON" --version
+
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang" --version
