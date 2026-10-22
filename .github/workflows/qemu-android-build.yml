@@ -113,6 +113,18 @@ jobs:
           python3 -c "import urllib.request; u='https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz'; r=urllib.request.urlopen(u, timeout=30); print('HTTP status:', r.status); print('Content length:', r.headers.get('Content-Length'))"
   
 
+      - name: Download and inspect GLib source
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/glib-source"
+          cd "$RUNNER_TEMP/glib-source"
+          python3 -c "import urllib.request; urllib.request.urlretrieve('https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz', 'glib.tar.xz')"
+          tar -tf glib.tar.xz | head -20
+          tar -xf glib.tar.xz
+          test -f glib-2.82.4/meson.build
+          echo "GLib source archive verified"
+
+
       - name: Test Android dependency build tools
         run: |
           set -eux
