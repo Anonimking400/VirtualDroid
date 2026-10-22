@@ -217,3 +217,46 @@ jobs:
           done
 
           echo "=== Dependency wrap inspection completed ==="
+
+
+      - name: Configure GLib for Android ARM64
+        run: |
+          set -eux
+
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          SYSROOT="$TOOLCHAIN/sysroot"
+          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
+          CROSS_FILE="$RUNNER_TEMP/android-arm64-api27.ini"
+          BUILD_DIR="$RUNNER_TEMP/glib-build"
+
+          cat > "$CROSS_FILE" <<EOF
+          [binaries]
+          c = '$TOOLCHAIN/bin/aarch64-linux-android27-clang'
+          cpp = '$TOOLCHAIN/bin/aarch64-linux-android27-clang++'
+          ar = '$TOOLCHAIN/bin/llvm-ar'
+          strip = '$TOOLCHAIN/bin/llvm-strip'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+
+          [properties]
+          sys_root = '$SYSROOT'
+          needs_exe_wrapper = true
+          EOF
+
+          echo "=== Android cross file ==="
+          cat "$CROSS_FILE"
+
+          MESON="$(python3 -m site --user-base)/bin/meson"
+          test -x "$MESON"
+          "$MESON" --version
+
+          "$MESON" setup "$BUILD_DIR" "$GLIB" \
+            --cross-file "$CROSS_FILE" \
+            --wrap-mode=forcefallback \
+            -Dtests=false
+
+          echo "GLib Android configuration completed"
