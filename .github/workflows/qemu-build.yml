@@ -1,0 +1,79 @@
+
+name: VirtualDroid QEMU ARM64 Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-qemu:
+    name: Build QEMU for ARM64 Android
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout QEMU source
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: v9.2.4
+          path: qemu-source
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            pkg-config \
+            python3 \
+            python3-venv \
+            python3-pip \
+            git \
+            libglib2.0-dev \
+            libpixman-1-dev \
+            zlib1g-dev \
+            libslirp-dev
+
+      - name: Configure ARM64 system emulator
+        working-directory: qemu-source
+        run: |
+          mkdir build
+          ./configure \
+            --prefix="$GITHUB_WORKSPACE/qemu-install" \
+            --target-list=aarch64-softmmu \
+            --enable-tcg \
+            --disable-kvm \
+            --disable-werror \
+            --disable-docs \
+            --disable-gtk \
+            --disable-sdl \
+            --disable-opengl \
+            --disable-virglrenderer \
+            --disable-spice \
+            --disable-vnc \
+            --disable-curl \
+            --disable-capstone \
+            --disable-libssh \
+            --disable-guest-agent \
+            --disable-tools \
+            --disable-debug-info \
+            --disable-strip \
+            --python=python3 \
+            --ninja=ninja \
+            --meson=meson \
+            --build-dir=build
+
+      - name: Compile QEMU
+        working-directory: qemu-source
+        run: |
+          ninja -C build
+
+      - name: Upload QEMU build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirtualDroid-QEMU-build
+          path: qemu-source/build/qemu-system-aarch64
+          if-no-files-found: error
