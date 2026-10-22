@@ -1,4 +1,5 @@
-Name: VirtualDroid Android Build
+
+name: VirtualDroid Android Build
 
 on:
   push:
@@ -24,22 +25,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Setup Gradle secara otomatis (cache, dll)
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
 
-      # Wajib agar script gradlew bisa dijalankan di server ubuntu
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      - name: Verify SDK manager
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          command -v sdkmanager
+          sdkmanager --version
 
-      # Gunakan ./gradlew (Wrapper) alih-alih gradle global
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VirtualDroid-debug-apk
-          # Pastikan path ini sesuai dengan struktur folder projectmu
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
