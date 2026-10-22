@@ -59,6 +59,26 @@ jobs:
           test -d "$ANDROID_NDK_HOME"
           ls "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
+      
+      - name: Test Android ARM64 compiler
+        run: |
+          set -eux
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          CC="$TOOLCHAIN/aarch64-linux-android27-clang"
+
+          cat > hello.c <<'EOF'
+          #include <stdio.h>
+          int main(void) {
+              puts("VirtualDroid Android ARM64 toolchain OK");
+              return 0;
+          }
+          EOF
+
+          "$CC" hello.c -o hello-android
+          file hello-android
+          "$TOOLCHAIN/llvm-readelf" -h hello-android
+
+
       - name: Report NDK availability
         run: |
           echo "Android NDK is installed."
