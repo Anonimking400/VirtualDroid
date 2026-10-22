@@ -40,7 +40,7 @@ jobs:
       - name: Configure ARM64 system emulator
         working-directory: qemu-source
         run: |
-          mkdir build
+          
           ./configure \
             --prefix="$GITHUB_WORKSPACE/qemu-install" \
             --target-list=aarch64-softmmu \
