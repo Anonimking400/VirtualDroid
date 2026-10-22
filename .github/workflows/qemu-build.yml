@@ -37,10 +37,10 @@ jobs:
             zlib1g-dev \
             libslirp-dev
 
+      
       - name: Configure ARM64 system emulator
         working-directory: qemu-source
         run: |
-          
           ./configure \
             --prefix="$GITHUB_WORKSPACE/qemu-install" \
             --target-list=aarch64-softmmu \
@@ -62,9 +62,8 @@ jobs:
             --disable-debug-info \
             --disable-strip \
             --python=python3 \
-            --ninja=ninja \
-            --meson=meson \
             --build-dir=build
+
 
       - name: Compile QEMU
         working-directory: qemu-source
