@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build-qemu:
-    name: Build QEMU for ARM64 Android
+    name: Build QEMU ARM64
     runs-on: ubuntu-22.04
 
     steps:
@@ -27,22 +27,20 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             ninja-build \
+            meson \
             pkg-config \
             python3 \
-            python3-venv \
             python3-pip \
-            git \
+            python3-venv \
             libglib2.0-dev \
             libpixman-1-dev \
             zlib1g-dev \
             libslirp-dev
 
-      
-      - name: Configure ARM64 system emulator
+      - name: Configure QEMU
         working-directory: qemu-source
         run: |
           ./configure \
-            --prefix="$GITHUB_WORKSPACE/qemu-install" \
             --target-list=aarch64-softmmu \
             --enable-tcg \
             --disable-kvm \
@@ -51,28 +49,22 @@ jobs:
             --disable-gtk \
             --disable-sdl \
             --disable-opengl \
-            --disable-virglrenderer \
-            --disable-spice \
             --disable-vnc \
-            --disable-curl \
-            --disable-capstone \
-            --disable-libssh \
-            --disable-guest-agent \
-            --disable-tools \
-            --disable-debug-info \
-            --disable-strip \
-            --python=python3 \
-            --build-dir=build
-
+            --disable-spice
 
       - name: Compile QEMU
         working-directory: qemu-source
         run: |
           ninja -C build
 
+      - name: Verify QEMU binary
+        run: |
+          test -x qemu-source/build/qemu-system-aarch64
+          qemu-source/build/qemu-system-aarch64 --version
+
       - name: Upload QEMU build output
         uses: actions/upload-artifact@v4
         with:
-          name: VirtualDroid-QEMU-build
+          name: VirtualDroid-QEMU-Linux-ARM64
           path: qemu-source/build/qemu-system-aarch64
           if-no-files-found: error
