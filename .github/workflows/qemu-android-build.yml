@@ -72,7 +72,6 @@ jobs:
             hello.c -o hello-android
 
           file hello-android
-
           "$TOOLCHAIN/bin/llvm-readelf" -h hello-android
           "$TOOLCHAIN/bin/llvm-readelf" -l hello-android
 
@@ -118,6 +117,7 @@ jobs:
       - name: Check GLib source archive
         run: |
           set -eux
+
           python3 - <<'PY'
           import urllib.request
 
@@ -152,17 +152,17 @@ jobs:
         run: |
           set -eux
 
-          cd "$RUNNER_TEMP/glib-source"
+          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
 
-          test -f glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
-          test -f glib-2.82.4/.gitlab-ci/android-ndk.sh
+          test -f "$GLIB/.gitlab-ci/cross_file_android_arm64_31.txt"
+          test -f "$GLIB/.gitlab-ci/android-ndk.sh"
 
           echo "=== GLib Android cross file ==="
-          sed -n '1,220p' glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
+          sed -n '1,220p' "$GLIB/.gitlab-ci/cross_file_android_arm64_31.txt"
 
           echo "=== GLib Android build instructions ==="
           grep -n -i -E 'android|libffi|pcre2|cross.file|meson setup' \
-            glib-2.82.4/.gitlab-ci/android-ndk.sh || true
+            "$GLIB/.gitlab-ci/android-ndk.sh" || true
 
       - name: Check Android NDK toolchain paths
         run: |
@@ -186,7 +186,6 @@ jobs:
 
           echo "Android NDK toolchain checks passed"
 
-
       - name: Inspect GLib build dependencies
         run: |
           set -eux
@@ -205,3 +204,16 @@ jobs:
           sed -n '1,240p' "$GLIB/.gitlab-ci/android-ndk.sh"
 
           echo "=== Dependency inspection completed ==="
+
+      - name: Inspect GLib dependency wrap files
+        run: |
+          set -eux
+
+          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
+
+          for dep in libffi zlib pcre2; do
+            echo "=== ${dep}.wrap ==="
+            sed -n '1,160p' "$GLIB/subprojects/${dep}.wrap"
+          done
+
+          echo "=== Dependency wrap inspection completed ==="
