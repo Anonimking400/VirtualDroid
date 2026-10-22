@@ -8,10 +8,17 @@ permissions:
 
 jobs:
   build:
+    name: Build QEMU Android ARM64
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     env:
       ANDROID_NDK_VERSION: 27.2.12479018
+      API_LEVEL: "27"
+      GLIB_VERSION: 2.82.4
+      PIXMAN_VERSION: 0.44.2
+      QEMU_VERSION: v9.2.4
+      PREFIX: /home/runner/android-arm64-prefix
 
     steps:
       - name: Checkout QEMU source
@@ -22,22 +29,7 @@ jobs:
           path: qemu-source
           fetch-depth: 1
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-
-      - name: Install Android NDK
-        run: |
-          set -eux
-          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Linux build dependencies
+      - name: Install host build dependencies
         run: |
           set -eux
           sudo apt-get update
@@ -48,220 +40,73 @@ jobs:
             python3 \
             python3-pip \
             python3-venv \
+            git \
+            curl \
+            wget \
+            ca-certificates \
+            xz-utils \
+            unzip \
+            zip \
+            tar \
+            bison \
+            flex \
+            gettext \
             libglib2.0-dev \
             libpixman-1-dev \
             zlib1g-dev \
-            libslirp-dev \
-            xz-utils
+            libslirp-dev
 
-      - name: Inspect Android NDK
-        run: |
-          set -eux
-          test -d "$ANDROID_NDK_HOME"
-          test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang"
-          echo "Android NDK found at $ANDROID_NDK_HOME"
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Test Android ARM64 compiler
-        run: |
-          set -eux
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ndk;27.2.12479018
 
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          printf 'int main(void) { return 0; }\n' > hello.c
-
-          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" \
-            hello.c -o hello-android
-
-          file hello-android
-          "$TOOLCHAIN/bin/llvm-readelf" -h hello-android
-          "$TOOLCHAIN/bin/llvm-readelf" -l hello-android
-
-      - name: Inspect QEMU dependencies
-        run: |
-          set -eux
-          cd qemu-source
-
-          echo "=== Git submodules ==="
-          git submodule status || true
-
-          echo "=== Meson wrap files ==="
-          find subprojects -maxdepth 2 -name '*.wrap' -print || true
-
-          echo "=== GLib and Pixman references ==="
-          grep -n -i -E 'glib|pixman' meson.build || true
-
-      - name: Check host dependency versions
-        run: |
-          set -eux
-          pkg-config --modversion glib-2.0
-          pkg-config --modversion pixman-1
-          pkg-config --variable=libdir glib-2.0
-          pkg-config --variable=libdir pixman-1
-
-      - name: Test Android dependency build tools
+      - name: Configure Android toolchain
         run: |
           set -eux
 
-          python3 --version
-          ninja --version
-          git --version
+          NDK="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
 
-          python3 -m pip install --user --upgrade 'meson>=1.3.0,<2'
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang++"
 
-          MESON="$(python3 -m site --user-base)/bin/meson"
-          echo "Meson path: $MESON"
-          test -x "$MESON"
-          "$MESON" --version
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "CC=$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang" >> "$GITHUB_ENV"
+          echo "CXX=$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang++" >> "$GITHUB_ENV"
+          echo "AR=$TOOLCHAIN/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "STRIP=$TOOLCHAIN/bin/llvm-strip" >> "$GITHUB_ENV"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang" --version
+          "$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang" --version
 
-      - name: Check GLib source archive
+      - name: Install Meson
+        run: |
+          set -eux
+          python3 -m pip install --user --upgrade "meson>=1.3.0,<2"
+          "$HOME/.local/bin/meson" --version
+
+      - name: Create Android cross compilation file
         run: |
           set -eux
 
-          python3 - <<'PY'
-          import urllib.request
-
-          url = "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz"
-          request = urllib.request.Request(url, method="HEAD")
-
-          with urllib.request.urlopen(request, timeout=30) as response:
-              print("HTTP status:", response.status)
-              print("Content length:", response.headers.get("Content-Length"))
-              if response.status != 200:
-                  raise SystemExit("GLib source archive check failed")
-          PY
-
-      - name: Download and inspect GLib source
-        run: |
-          set -eux
-
-          mkdir -p "$RUNNER_TEMP/glib-source"
-          cd "$RUNNER_TEMP/glib-source"
-
-          python3 -c "import urllib.request; urllib.request.urlretrieve('https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz', 'glib.tar.xz')"
-
-          tar -tf glib.tar.xz > archive-files.txt
-          sed -n '1,20p' archive-files.txt
-
-          tar -xf glib.tar.xz
-          test -f glib-2.82.4/meson.build
-
-          echo "GLib source archive verified"
-
-      - name: Inspect GLib Android cross file
-        run: |
-          set -eux
-
-          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
-
-          test -f "$GLIB/.gitlab-ci/cross_file_android_arm64_31.txt"
-          test -f "$GLIB/.gitlab-ci/android-ndk.sh"
-
-          echo "=== GLib Android cross file ==="
-          sed -n '1,220p' "$GLIB/.gitlab-ci/cross_file_android_arm64_31.txt"
-
-          echo "=== GLib Android build instructions ==="
-          grep -n -i -E 'android|libffi|pcre2|cross.file|meson setup' \
-            "$GLIB/.gitlab-ci/android-ndk.sh" || true
-
-      - name: Check Android NDK toolchain paths
-        run: |
-          set -eux
-
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          SYSROOT="$TOOLCHAIN/sysroot"
-
-          test -x "$TOOLCHAIN/bin/aarch64-linux-android27-clang"
-          test -x "$TOOLCHAIN/bin/aarch64-linux-android27-clang++"
-          test -x "$TOOLCHAIN/bin/llvm-ar"
-          test -x "$TOOLCHAIN/bin/llvm-strip"
-          test -d "$SYSROOT"
-          test -d "$SYSROOT/usr/include"
-
-          echo "=== Android compiler ==="
-          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" --version
-
-          echo "=== Android sysroot ==="
-          echo "$SYSROOT"
-
-          echo "Android NDK toolchain checks passed"
-
-      - name: Inspect GLib build dependencies
-        run: |
-          set -eux
-
-          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
-
-          echo "=== GLib subproject files ==="
-          find "$GLIB/subprojects" -maxdepth 2 -type f -print || true
-
-          echo "=== GLib dependency declarations ==="
-          grep -n -i -E \
-            "dependency\\('libffi|dependency\\('libpcre2|dependency\\('zlib|allow_fallback|default_library" \
-            "$GLIB/meson.build" || true
-
-          echo "=== Official Android build script ==="
-          sed -n '1,240p' "$GLIB/.gitlab-ci/android-ndk.sh"
-
-          echo "=== Dependency inspection completed ==="
-
-      - name: Inspect GLib dependency wrap files
-        run: |
-          set -eux
-
-          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
-
-          for dep in libffi zlib pcre2; do
-            echo "=== ${dep}.wrap ==="
-            sed -n '1,160p' "$GLIB/subprojects/${dep}.wrap"
-          done
-
-          echo "=== Dependency wrap inspection completed ==="
-
-      - name: Inspect GLib iconv configuration
-        run: |
-          set -eux
-
-          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
-
-          echo "=== iconv references in GLib ==="
-          grep -n -i -C 4 'iconv' "$GLIB/meson.build" || true
-
-          echo "=== iconv-related options ==="
-          grep -R -n -i 'iconv' \
-            "$GLIB/meson_options.txt" \
-            "$GLIB/meson.build" \
-            "$GLIB/m4" 2>/dev/null || true
-
-          echo "=== Test Android iconv header ==="
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-
-          printf '#include <iconv.h>\nint main(void) { return 0; }\n' \
-            > "$RUNNER_TEMP/test-iconv.c"
-
-          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" \
-            -c "$RUNNER_TEMP/test-iconv.c" \
-            -o "$RUNNER_TEMP/test-iconv.o"
-
-          echo "Android iconv header check passed"
-
-      - name: Configure GLib for Android ARM64
-        run: |
-          set -eux
-
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          SYSROOT="$TOOLCHAIN/sysroot"
-          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
+          SYSROOT="$ANDROID_TOOLCHAIN/sysroot"
           CROSS_FILE="$RUNNER_TEMP/android-arm64-api27.ini"
-          BUILD_DIR="$RUNNER_TEMP/glib-build"
-          MESON="$(python3 -m site --user-base)/bin/meson"
 
           cat > "$CROSS_FILE" <<EOF
           [binaries]
-          c = '$TOOLCHAIN/bin/aarch64-linux-android27-clang'
-          cpp = '$TOOLCHAIN/bin/aarch64-linux-android27-clang++'
-          ar = '$TOOLCHAIN/bin/llvm-ar'
-          strip = '$TOOLCHAIN/bin/llvm-strip'
+          c = '$CC'
+          cpp = '$CXX'
+          ar = '$AR'
+          strip = '$STRIP'
+          pkg-config = 'pkg-config'
 
           [host_machine]
           system = 'android'
@@ -272,16 +117,292 @@ jobs:
           [properties]
           sys_root = '$SYSROOT'
           needs_exe_wrapper = true
+
+          [built-in options]
+          c_args = ['-fPIC']
+          cpp_args = ['-fPIC']
           EOF
 
-          echo "=== Android cross file ==="
+          echo "CROSS_FILE=$CROSS_FILE" >> "$GITHUB_ENV"
           cat "$CROSS_FILE"
 
-          "$MESON" --version
+      - name: Test Android compiler
+        run: |
+          set -eux
 
-          "$MESON" setup "$BUILD_DIR" "$GLIB" \
+          cat > "$RUNNER_TEMP/test.c" <<'EOF'
+          #include <stdio.h>
+          int main(void) {
+            puts("Android ARM64 compiler works");
+            return 0;
+          }
+          EOF
+
+          "$CC" "$RUNNER_TEMP/test.c" \
+            -o "$RUNNER_TEMP/test-android"
+
+          file "$RUNNER_TEMP/test-android"
+
+      - name: Download GLib source
+        run: |
+          set -eux
+
+          mkdir -p "$RUNNER_TEMP/glib-source"
+
+          curl -fL --retry 3 \
+            "https://download.gnome.org/sources/glib/2.82/glib-${GLIB_VERSION}.tar.xz" \
+            -o "$RUNNER_TEMP/glib.tar.xz"
+
+          tar -xf "$RUNNER_TEMP/glib.tar.xz" \
+            -C "$RUNNER_TEMP/glib-source"
+
+          test -f "$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}/meson.build"
+
+      - name: Fix GLib iconv detection for Android
+        run: |
+          set -eux
+
+          GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
+          export GLIB
+
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["GLIB"])
+          path = root / "meson.build"
+          text = path.read_text()
+
+          old = "libiconv = dependency('iconv')"
+          new = """if host_machine.system() == 'android'
+            libiconv = declare_dependency()
+          else
+            libiconv = dependency('iconv')
+          endif"""
+
+          if new in text:
+              print("Android iconv fix already present.")
+          else:
+              pos = text.find("# Tests for iconv")
+              if pos < 0:
+                  raise SystemExit(
+                      "ERROR: Cannot locate GLib iconv section; "
+                      "source differs from expected version."
+                  )
+
+              idx = text.find(old, pos)
+              if idx < 0:
+                  raise SystemExit(
+                      "ERROR: Cannot find expected iconv dependency line."
+                  )
+
+              text = text[:idx] + new + text[idx + len(old):]
+              path.write_text(text)
+              print("Applied Android iconv dependency fix.")
+
+          source = root / "glib" / "gconvert.c"
+          if not source.exists():
+              raise SystemExit("ERROR: glib/gconvert.c not found.")
+
+          ctext = source.read_text()
+          if "#include <iconv.h>" not in ctext:
+              config = '#include "config.h"'
+              idx = ctext.find(config)
+              if idx < 0:
+                  raise SystemExit(
+                      "ERROR: Cannot safely locate config.h include "
+                      "in gconvert.c."
+                  )
+
+              end = idx + len(config)
+              ctext = ctext[:end] + "\n#include <iconv.h>" + ctext[end:]
+              source.write_text(ctext)
+              print("Added iconv.h include.")
+          else:
+              print("iconv.h include already present.")
+          PY
+
+      - name: Configure GLib for Android ARM64
+        run: |
+          set -eux
+
+          GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
+          BUILD="$RUNNER_TEMP/glib-build"
+
+          "$HOME/.local/bin/meson" setup "$BUILD" "$GLIB" \
             --cross-file "$CROSS_FILE" \
+            --prefix="$PREFIX" \
+            --libdir=lib \
+            --buildtype=release \
             --wrap-mode=forcefallback \
-            -Dtests=false
+            -Dtests=false \
+            -Dintrospection=disabled \
+            -Ddocumentation=false \
+            -Dman-pages=disabled \
+            -Dselinux=disabled \
+            -Dlibmount=disabled
 
-          echo "GLib Android configuration completed"
+      - name: Build and install GLib
+        run: |
+          set -eux
+
+          "$HOME/.local/bin/meson" compile \
+            -C "$RUNNER_TEMP/glib-build" \
+            -j 2
+
+          "$HOME/.local/bin/meson" install \
+            -C "$RUNNER_TEMP/glib-build"
+
+          test -d "$PREFIX/include/glib-2.0"
+          find "$PREFIX" -maxdepth 3 -type f | head -100
+
+      - name: Configure target pkg-config paths
+        run: |
+          set -eux
+
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig" \
+            >> "$GITHUB_ENV"
+
+          echo "PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig" \
+            >> "$GITHUB_ENV"
+
+          echo "CFLAGS=-I$PREFIX/include" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$PREFIX/lib" >> "$GITHUB_ENV"
+
+      - name: Download Pixman source
+        run: |
+          set -eux
+
+          mkdir -p "$RUNNER_TEMP/pixman-source"
+
+          curl -fL --retry 3 \
+            "https://cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz" \
+            -o "$RUNNER_TEMP/pixman.tar.gz"
+
+          tar -xf "$RUNNER_TEMP/pixman.tar.gz" \
+            -C "$RUNNER_TEMP/pixman-source"
+
+          test -f "$RUNNER_TEMP/pixman-source/pixman-${PIXMAN_VERSION}/meson.build"
+
+      - name: Configure Pixman for Android ARM64
+        run: |
+          set -eux
+
+          PIXMAN="$RUNNER_TEMP/pixman-source/pixman-${PIXMAN_VERSION}"
+
+          "$HOME/.local/bin/meson" setup \
+            "$RUNNER_TEMP/pixman-build" "$PIXMAN" \
+            --cross-file "$CROSS_FILE" \
+            --prefix="$PREFIX" \
+            --libdir=lib \
+            --buildtype=release \
+            -Ddefault_library=shared \
+            -Dtests=disabled
+
+      - name: Build and install Pixman
+        run: |
+          set -eux
+
+          "$HOME/.local/bin/meson" compile \
+            -C "$RUNNER_TEMP/pixman-build" \
+            -j 2
+
+          "$HOME/.local/bin/meson" install \
+            -C "$RUNNER_TEMP/pixman-build"
+
+          find "$PREFIX" -iname '*pixman*'
+
+      - name: Configure QEMU for Android ARM64
+        run: |
+          set -eux
+
+          cd qemu-source
+          mkdir -p "$RUNNER_TEMP/qemu-build"
+          cd "$RUNNER_TEMP/qemu-build"
+
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
+          export CFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib"
+
+          "$GITHUB_WORKSPACE/qemu-source/configure" \
+            --prefix="$PREFIX" \
+            --target-list=aarch64-softmmu \
+            --cross-cc-aarch64="$CC" \
+            --cc="$CC" \
+            --host-cc=gcc \
+            --enable-tcg \
+            --disable-kvm \
+            --disable-werror \
+            --disable-docs \
+            --disable-tools \
+            --disable-guest-agent \
+            --disable-slirp \
+            --disable-capstone \
+            --disable-curl \
+            --disable-gtk \
+            --disable-sdl \
+            --disable-opengl \
+            --disable-vnc \
+            --disable-alsa \
+            --disable-pa \
+            --disable-pipewire \
+            --disable-usb-redir \
+            --disable-vde \
+            --disable-xen \
+            --disable-seccomp \
+            --disable-virtfs \
+            --disable-linux-aio \
+            --disable-libnfs \
+            --disable-rbd \
+            --disable-glusterfs \
+            --disable-libiscsi \
+            --disable-smartcard \
+            --disable-lzo \
+            --disable-snappy \
+            --disable-zstd \
+            --disable-numa \
+            --disable-plugins
+
+      - name: Build QEMU
+        run: |
+          set -eux
+
+          cmake_status=0
+          ninja -C "$RUNNER_TEMP/qemu-build" -j 2 || cmake_status=$?
+
+          if [ "$cmake_status" -ne 0 ]; then
+            echo "QEMU compilation failed; inspect the error above."
+            exit "$cmake_status"
+          fi
+
+      - name: Package build output
+        run: |
+          set -eux
+
+          mkdir -p "$RUNNER_TEMP/qemu-package"
+
+          find "$RUNNER_TEMP/qemu-build" \
+            -type f -name 'qemu-system-aarch64' \
+            -exec cp {} "$RUNNER_TEMP/qemu-package/" \;
+
+          if [ ! -f "$RUNNER_TEMP/qemu-package/qemu-system-aarch64" ]; then
+            echo "ERROR: QEMU binary was not produced."
+            find "$RUNNER_TEMP/qemu-build" -maxdepth 3 -type f | head -200
+            exit 1
+          fi
+
+          cp -a "$PREFIX"/. "$RUNNER_TEMP/qemu-package/" || true
+
+          tar -czf "$RUNNER_TEMP/qemu-android-arm64.tar.gz" \
+            -C "$RUNNER_TEMP/qemu-package" .
+
+          ls -lh "$RUNNER_TEMP/qemu-android-arm64.tar.gz"
+
+      - name: Upload QEMU Android ARM64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-android-arm64
+          path: ${{ runner.temp }}/qemu-android-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
