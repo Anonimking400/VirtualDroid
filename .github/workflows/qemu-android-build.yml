@@ -185,24 +185,24 @@ jobs:
           GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
           BUILD="$RUNNER_TEMP/glib-build"
 
-          export CFLAGS="-I$PREFIX/include"
-          export LDFLAGS="-L$PREFIX/lib"
-
+          # Meson saat cross-compile akan mengabaikan environment variable CFLAGS/LDFLAGS.
+          # Oleh karena itu, kita masukkan path libiconv langsung ke c_args dan c_link_args.
+          
           "$HOME/.local/bin/meson" setup "$BUILD" "$GLIB" \
             --cross-file "$CROSS_FILE" \
             --prefix="$PREFIX" \
             --libdir=lib \
             --buildtype=release \
             --wrap-mode=forcefallback \
-            -Diconv=external \
-            -Dc_args="$CFLAGS" \
-            -Dc_link_args="$LDFLAGS" \
+            -Dc_args="-fPIC -I$PREFIX/include" \
+            -Dc_link_args="-fPIC -L$PREFIX/lib -liconv" \
             -Dtests=false \
             -Dintrospection=disabled \
             -Ddocumentation=false \
             -Dman-pages=disabled \
             -Dselinux=disabled \
             -Dlibmount=disabled
+
 
       - name: Build and install GLib
         run: |
