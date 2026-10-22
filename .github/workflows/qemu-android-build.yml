@@ -1,17 +1,20 @@
-name: VirtualDroid QEMU Android ARM64
+name: Build QEMU for Android ARM64
 
 on:
   workflow_dispatch:
 
-env:
-  ANDROID_NDK_VERSION: 27.2.12479018
+permissions:
+  contents: read
 
 jobs:
-  build-qemu-android:
+  build:
     runs-on: ubuntu-22.04
 
+    env:
+      ANDROID_NDK_VERSION: 27.2.12479018
+
     steps:
-      - name: Checkout QEMU
+      - name: Checkout QEMU source
         uses: actions/checkout@v4
         with:
           repository: qemu/qemu
@@ -19,13 +22,13 @@ jobs:
           path: qemu-source
           fetch-depth: 1
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Install Android NDK
@@ -41,7 +44,6 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             ninja-build \
-            meson \
             pkg-config \
             python3 \
             python3-pip \
@@ -49,92 +51,52 @@ jobs:
             libglib2.0-dev \
             libpixman-1-dev \
             zlib1g-dev \
-            libslirp-dev
+            libslirp-dev \
+            xz-utils
 
       - name: Inspect Android NDK
         run: |
           set -eux
           test -d "$ANDROID_NDK_HOME"
-          ls "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang"
+          echo "Android NDK found at $ANDROID_NDK_HOME"
 
       - name: Test Android ARM64 compiler
         run: |
           set -eux
 
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          CC="$TOOLCHAIN/aarch64-linux-android27-clang"
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          printf 'int main(void) { return 0; }\n' > hello.c
 
-          cat > hello.c <<'EOF'
-          #include <stdio.h>
-
-          int main(void) {
-              puts("VirtualDroid Android ARM64 toolchain OK");
-              return 0;
-          }
-          EOF
-
-          "$CC" hello.c -o hello-android
+          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" \
+            hello.c -o hello-android
 
           file hello-android
 
-          "$TOOLCHAIN/llvm-readelf" -h hello-android
+          "$TOOLCHAIN/bin/llvm-readelf" -h hello-android
+          "$TOOLCHAIN/bin/llvm-readelf" -l hello-android
 
       - name: Inspect QEMU dependencies
         run: |
           set -eux
-
           cd qemu-source
 
           echo "=== Git submodules ==="
-          git submodule status
+          git submodule status || true
 
-          echo "=== Meson dependency files ==="
-          find subprojects -maxdepth 2 -name '*.wrap' -print 2>/dev/null || true
+          echo "=== Meson wrap files ==="
+          find subprojects -maxdepth 2 -name '*.wrap' -print || true
 
           echo "=== GLib and Pixman references ==="
-          grep -n -i -E 'glib|pixman' meson.build
+          grep -n -i -E 'glib|pixman' meson.build || true
 
       - name: Check host dependency versions
         run: |
           set -eux
-
           pkg-config --modversion glib-2.0
           pkg-config --modversion pixman-1
-
           pkg-config --variable=libdir glib-2.0
           pkg-config --variable=libdir pixman-1
-
-        
-      - name: Check GLib source archive
-        run: |
-          set -eux
-          mkdir -p "$RUNNER_TEMP/glib-check"
-          cd "$RUNNER_TEMP/glib-check"
-          python3 -c "import urllib.request; u='https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz'; r=urllib.request.urlopen(u, timeout=30); print('HTTP status:', r.status); print('Content length:', r.headers.get('Content-Length'))"
-  
-
-      - name: Download and inspect GLib source
-        run: |
-          set -eux
-          mkdir -p "$RUNNER_TEMP/glib-source"
-          cd "$RUNNER_TEMP/glib-source"
-          python3 -c "import urllib.request; urllib.request.urlretrieve('https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz', 'glib.tar.xz')"
-          tar -tf glib.tar.xz | head -20
-          tar -xf glib.tar.xz
-          test -f glib-2.82.4/meson.build
-          echo "GLib source archive verified"
-
-      
-      - name: Inspect GLib Android cross file
-        run: |
-          set -eux
-          cd "$RUNNER_TEMP/glib-source"
-          tar -xf glib.tar.xz
-          sed -n '1,220p' glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
-          echo "=== GLib Android build instructions ==="
-          grep -n -i -E 'android|libffi|pcre2|cross.file|meson setup' glib-2.82.4/.gitlab-ci/android-ndk.sh
-
-
 
       - name: Test Android dependency build tools
         run: |
@@ -147,11 +109,79 @@ jobs:
           python3 -m pip install --user --upgrade 'meson>=1.3.0,<2'
 
           MESON="$(python3 -m site --user-base)/bin/meson"
-
           echo "Meson path: $MESON"
-
           test -x "$MESON"
-
           "$MESON" --version
 
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang" --version
+
+      - name: Check GLib source archive
+        run: |
+          set -eux
+          python3 - <<'PY'
+          import urllib.request
+
+          url = "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz"
+          request = urllib.request.Request(url, method="HEAD")
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              print("HTTP status:", response.status)
+              print("Content length:", response.headers.get("Content-Length"))
+              if response.status != 200:
+                  raise SystemExit("GLib source archive check failed")
+          PY
+
+      - name: Download and inspect GLib source
+        run: |
+          set -eux
+
+          mkdir -p "$RUNNER_TEMP/glib-source"
+          cd "$RUNNER_TEMP/glib-source"
+
+          python3 -c "import urllib.request; urllib.request.urlretrieve('https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz', 'glib.tar.xz')"
+
+          tar -tf glib.tar.xz > archive-files.txt
+          sed -n '1,20p' archive-files.txt
+
+          tar -xf glib.tar.xz
+          test -f glib-2.82.4/meson.build
+
+          echo "GLib source archive verified"
+
+      - name: Inspect GLib Android cross file
+        run: |
+          set -eux
+
+          cd "$RUNNER_TEMP/glib-source"
+
+          test -f glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
+          test -f glib-2.82.4/.gitlab-ci/android-ndk.sh
+
+          echo "=== GLib Android cross file ==="
+          sed -n '1,220p' glib-2.82.4/.gitlab-ci/cross_file_android_arm64_31.txt
+
+          echo "=== GLib Android build instructions ==="
+          grep -n -i -E 'android|libffi|pcre2|cross.file|meson setup' \
+            glib-2.82.4/.gitlab-ci/android-ndk.sh || true
+
+      - name: Check Android NDK toolchain paths
+        run: |
+          set -eux
+
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          SYSROOT="$TOOLCHAIN/sysroot"
+
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android27-clang"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android27-clang++"
+          test -x "$TOOLCHAIN/bin/llvm-ar"
+          test -x "$TOOLCHAIN/bin/llvm-strip"
+          test -d "$SYSROOT"
+          test -d "$SYSROOT/usr/include"
+
+          echo "=== Android compiler ==="
+          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" --version
+
+          echo "=== Android sysroot ==="
+          echo "$SYSROOT"
+
+          echo "Android NDK toolchain checks passed"
