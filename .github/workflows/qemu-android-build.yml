@@ -55,14 +55,18 @@ jobs:
             libslirp-dev
 
         
+      
+      
       - name: Check Android dependency build tools
         run: |
           set -eux
+          export PATH="$HOME/.local/bin:$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           python3 --version
           ninja --version
           git --version
-          "$HOME/.local/bin/meson" --version
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android27-clang" --version
+          meson --version
+          aarch64-linux-android27-clang --version
+
 
 
         
