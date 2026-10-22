@@ -104,6 +104,15 @@ jobs:
           pkg-config --variable=libdir glib-2.0
           pkg-config --variable=libdir pixman-1
 
+        
+      - name: Check GLib source archive
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/glib-check"
+          cd "$RUNNER_TEMP/glib-check"
+          python3 -c "import urllib.request; u='https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz'; r=urllib.request.urlopen(u, timeout=30); print('HTTP status:', r.status); print('Content length:', r.headers.get('Content-Length'))"
+  
+
       - name: Test Android dependency build tools
         run: |
           set -eux
