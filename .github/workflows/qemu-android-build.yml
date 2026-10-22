@@ -158,72 +158,25 @@ jobs:
 
           test -f "$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}/meson.build"
 
-      - name: Fix GLib iconv detection for Android
+      - name: Build and install GNU libiconv
         run: |
           set -eux
-
-          GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
-          export GLIB
-
-          python3 <<'PY'
-          import os
-          from pathlib import Path
-
-          root = Path(os.environ["GLIB"])
-
-          # Android Bionic provides iconv; do not search for a
-          # separate libiconv dependency.
-          meson_file = root / "meson.build"
-          text = meson_file.read_text()
-
-          old = "libiconv = dependency('iconv')"
-          new = """if host_machine.system() == 'android'
-            libiconv = declare_dependency()
-          else
-            libiconv = dependency('iconv')
-          endif"""
-
-          if new not in text:
-              pos = text.find("# Tests for iconv")
-              if pos < 0:
-                  raise SystemExit(
-                      "ERROR: GLib iconv section not found"
-                  )
-
-              idx = text.find(old, pos)
-              if idx < 0:
-                  raise SystemExit(
-                      "ERROR: iconv dependency line not found"
-                  )
-
-              text = text[:idx] + new + text[idx + len(old):]
-              meson_file.write_text(text)
-
-          # Ensure iconv declarations are visible to the compiler.
-          source = root / "glib" / "gconvert.c"
-          text = source.read_text()
-
-          if "#include <iconv.h>" not in text:
-              marker = '#include "config.h"'
-              idx = text.find(marker)
-              if idx < 0:
-                  raise SystemExit(
-                      "ERROR: config.h include not found in gconvert.c"
-                  )
-
-              idx += len(marker)
-              text = text[:idx] + "\n#include <iconv.h>" + text[idx:]
-              source.write_text(text)
-
-          # Fail early if the patch was not applied.
-          assert "#include <iconv.h>" in source.read_text()
-          assert new in meson_file.read_text()
-
-          print("GLib Android iconv patch verified.")
-          PY
-
-          grep -n 'iconv.h' "$GLIB/glib/gconvert.c"
-          grep -n -A5 -B2 "host_machine.system() == 'android'" "$GLIB/meson.build"
+          
+          curl -fL --retry 3 "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz" -o "$RUNNER_TEMP/libiconv.tar.gz"
+          mkdir -p "$RUNNER_TEMP/libiconv-source"
+          tar -xf "$RUNNER_TEMP/libiconv.tar.gz" -C "$RUNNER_TEMP/libiconv-source" --strip-components=1
+          
+          cd "$RUNNER_TEMP/libiconv-source"
+          ./configure \
+            --host=aarch64-linux-android \
+            --prefix="$PREFIX" \
+            CC="$CC" \
+            AR="$AR" \
+            RANLIB="$ANDROID_TOOLCHAIN/bin/llvm-ranlib" \
+            STRIP="$STRIP"
+          
+          make -j2
+          make install
 
       - name: Configure GLib for Android ARM64
         run: |
@@ -232,12 +185,18 @@ jobs:
           GLIB="$RUNNER_TEMP/glib-source/glib-${GLIB_VERSION}"
           BUILD="$RUNNER_TEMP/glib-build"
 
+          export CFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib"
+
           "$HOME/.local/bin/meson" setup "$BUILD" "$GLIB" \
             --cross-file "$CROSS_FILE" \
             --prefix="$PREFIX" \
             --libdir=lib \
             --buildtype=release \
             --wrap-mode=forcefallback \
+            -Diconv=external \
+            -Dc_args="$CFLAGS" \
+            -Dc_link_args="$LDFLAGS" \
             -Dtests=false \
             -Dintrospection=disabled \
             -Ddocumentation=false \
