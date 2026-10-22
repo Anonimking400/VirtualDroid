@@ -218,6 +218,32 @@ jobs:
 
           echo "=== Dependency wrap inspection completed ==="
 
+      - name: Inspect GLib iconv configuration
+        run: |
+          set -eux
+
+          GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
+
+          echo "=== iconv references in GLib ==="
+          grep -n -i -C 4 'iconv' "$GLIB/meson.build" || true
+
+          echo "=== iconv-related options ==="
+          grep -R -n -i 'iconv' \
+            "$GLIB/meson_options.txt" \
+            "$GLIB/meson.build" \
+            "$GLIB/m4" 2>/dev/null || true
+
+          echo "=== Test Android iconv header ==="
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+
+          printf '#include <iconv.h>\nint main(void) { return 0; }\n' \
+            > "$RUNNER_TEMP/test-iconv.c"
+
+          "$TOOLCHAIN/bin/aarch64-linux-android27-clang" \
+            -c "$RUNNER_TEMP/test-iconv.c" \
+            -o "$RUNNER_TEMP/test-iconv.o"
+
+          echo "Android iconv header check passed"
 
       - name: Configure GLib for Android ARM64
         run: |
@@ -228,6 +254,7 @@ jobs:
           GLIB="$RUNNER_TEMP/glib-source/glib-2.82.4"
           CROSS_FILE="$RUNNER_TEMP/android-arm64-api27.ini"
           BUILD_DIR="$RUNNER_TEMP/glib-build"
+          MESON="$(python3 -m site --user-base)/bin/meson"
 
           cat > "$CROSS_FILE" <<EOF
           [binaries]
@@ -250,8 +277,6 @@ jobs:
           echo "=== Android cross file ==="
           cat "$CROSS_FILE"
 
-          MESON="$(python3 -m site --user-base)/bin/meson"
-          test -x "$MESON"
           "$MESON" --version
 
           "$MESON" setup "$BUILD_DIR" "$GLIB" \
