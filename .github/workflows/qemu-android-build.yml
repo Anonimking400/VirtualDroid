@@ -53,7 +53,18 @@ jobs:
             libpixman-1-dev \
             zlib1g-dev \
             libslirp-dev
-
+            
+      - name: Inspect QEMU dependencies
+        run: |
+          set -eux
+          cd qemu-source
+          echo "=== Git submodules ==="
+          git submodule status
+          echo "=== Meson dependency files ==="
+          find subprojects -maxdepth 2 -name '*.wrap' -print 2>/dev/null || true
+          echo "=== GLib and Pixman references ==="
+          grep -n -i -E 'glib|pixman' meson.build
+          
       - name: Inspect Android NDK
         run: |
           test -d "$ANDROID_NDK_HOME"
