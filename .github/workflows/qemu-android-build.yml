@@ -1,0 +1,65 @@
+
+name: VirtualDroid QEMU Android ARM64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build QEMU for Android ARM64
+    runs-on: ubuntu-22.04
+
+    env:
+      ANDROID_NDK_VERSION: 27.2.12479018
+
+    steps:
+      - name: Checkout QEMU source
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: v9.2.4
+          path: qemu-source
+          fetch-depth: 1
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            meson \
+            pkg-config \
+            python3 \
+            python3-pip \
+            python3-venv \
+            libglib2.0-dev \
+            libpixman-1-dev \
+            zlib1g-dev \
+            libslirp-dev
+
+      - name: Inspect Android NDK
+        run: |
+          test -d "$ANDROID_NDK_HOME"
+          ls "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+      - name: Report NDK availability
+        run: |
+          echo "Android NDK is installed."
+          echo "Next step: configure QEMU for the Android target."
