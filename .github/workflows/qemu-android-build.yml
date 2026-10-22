@@ -170,8 +170,11 @@ jobs:
           from pathlib import Path
 
           root = Path(os.environ["GLIB"])
-          path = root / "meson.build"
-          text = path.read_text()
+
+          # Android Bionic provides iconv; do not search for a
+          # separate libiconv dependency.
+          meson_file = root / "meson.build"
+          text = meson_file.read_text()
 
           old = "libiconv = dependency('iconv')"
           new = """if host_machine.system() == 'android'
@@ -180,47 +183,47 @@ jobs:
             libiconv = dependency('iconv')
           endif"""
 
-          if new in text:
-              print("Android iconv fix already present.")
-          else:
+          if new not in text:
               pos = text.find("# Tests for iconv")
               if pos < 0:
                   raise SystemExit(
-                      "ERROR: Cannot locate GLib iconv section; "
-                      "source differs from expected version."
+                      "ERROR: GLib iconv section not found"
                   )
 
               idx = text.find(old, pos)
               if idx < 0:
                   raise SystemExit(
-                      "ERROR: Cannot find expected iconv dependency line."
+                      "ERROR: iconv dependency line not found"
                   )
 
               text = text[:idx] + new + text[idx + len(old):]
-              path.write_text(text)
-              print("Applied Android iconv dependency fix.")
+              meson_file.write_text(text)
 
+          # Ensure iconv declarations are visible to the compiler.
           source = root / "glib" / "gconvert.c"
-          if not source.exists():
-              raise SystemExit("ERROR: glib/gconvert.c not found.")
+          text = source.read_text()
 
-          ctext = source.read_text()
-          if "#include <iconv.h>" not in ctext:
-              config = '#include "config.h"'
-              idx = ctext.find(config)
+          if "#include <iconv.h>" not in text:
+              marker = '#include "config.h"'
+              idx = text.find(marker)
               if idx < 0:
                   raise SystemExit(
-                      "ERROR: Cannot safely locate config.h include "
-                      "in gconvert.c."
+                      "ERROR: config.h include not found in gconvert.c"
                   )
 
-              end = idx + len(config)
-              ctext = ctext[:end] + "\n#include <iconv.h>" + ctext[end:]
-              source.write_text(ctext)
-              print("Added iconv.h include.")
-          else:
-              print("iconv.h include already present.")
+              idx += len(marker)
+              text = text[:idx] + "\n#include <iconv.h>" + text[idx:]
+              source.write_text(text)
+
+          # Fail early if the patch was not applied.
+          assert "#include <iconv.h>" in source.read_text()
+          assert new in meson_file.read_text()
+
+          print("GLib Android iconv patch verified.")
           PY
+
+          grep -n 'iconv.h' "$GLIB/glib/gconvert.c"
+          grep -n -A5 -B2 "host_machine.system() == 'android'" "$GLIB/meson.build"
 
       - name: Configure GLib for Android ARM64
         run: |
